@@ -1,0 +1,9 @@
+aws_region             = "us-east-2"
+project_name           = "realtime-sensors"
+environment            = "dev"
+shard_count            = 2
+parallelism            = 2
+parallelism_per_kpu    = 1
+window_minutes         = 1
+out_of_order_seconds   = 10
+checkpoint_interval_ms = 60000
