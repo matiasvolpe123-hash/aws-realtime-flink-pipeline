@@ -64,6 +64,14 @@ aws logs tail /aws/kinesis-analytics/realtime-sensors-dev-flink-aggregation \
 
 La evidencia de ejecución consiste en una captura del grafo de la aplicación en la consola Managed Flink o logs de CloudWatch que muestren `temperature-summary` y sus métricas. No se incluye una captura simulada.
 
+Para guardar el estado de la aplicación y los logs recientes en un archivo compartible, corré el script desde la raíz del repositorio:
+
+```bash
+scripts/capture-evidence.sh
+```
+
+El archivo resultante queda en `evidence/flink-cloudwatch.txt`. Enviámelo cuando esté generado para añadirlo al repositorio como evidencia.
+
 ## Limpieza
 
 ```bash
