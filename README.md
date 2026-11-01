@@ -67,11 +67,15 @@ aws logs tail /aws/kinesis-analytics/realtime-sensors-dev-flink-aggregation \
 ### Bloqueo de la cuenta de AWS
 
 Esta cuenta de AWS (683590131550) fue creada por el autor del proyecto, conectada con GitHub, sin ninguna organización asignada por el curso. AWS aplica automáticamente guardrails (Service Control Policies) a cuentas nuevas como medida antifraude hasta que la cuenta pasa cierta verificación. En este caso, la SCP `p-uyxw8uhp` deniega explícitamente `kinesis:CreateStream` (y otras acciones de Kinesis) en todas las regiones probadas (us-east-2, us-west-2, eu-west-1), lo que impide desplegar el stream real que necesita este módulo:
+
+```
 An error occurred (AccessDeniedException) when calling the CreateStream operation:
 User: arn:aws:iam::683590131550:user/terraform-curso is not authorized to perform:
 kinesis:CreateStream on resource: arn:aws:kinesis:us-east-2:683590131550:stream/...
 with an explicit deny in a service control policy:
-arn:aws:organizations::328064416027:policy/o-pqdyvbpw97/service_control_policy/p-uyxw8uhp 
+arn:aws:organizations::328064416027:policy/o-pqdyvbpw97/service_control_policy/p-uyxw8uhp
+```
+
 Se abrió un caso de soporte con AWS pidiendo el levantamiento de esa restricción. Mientras se resuelve, la evidencia de ejecución de este módulo se generó localmente (ver debajo). Cuando AWS levante el bloqueo, hay que desplegar con `terraform apply` y correr `scripts/capture-evidence.sh` (ver más abajo) para generar la evidencia real desde CloudWatch.
 
 ### Evidencia generada localmente (LocalStack)
