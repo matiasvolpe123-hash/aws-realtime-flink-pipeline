@@ -1,5 +1,14 @@
-nohup: no se tendrá en cuenta la entrada
-SLF4J: Failed to load class "org.slf4j.impl.StaticLoggerBinder".
-SLF4J: Defaulting to no-operation (NOP) logger implementation
-SLF4J: See http://www.slf4j.org/codes.html#StaticLoggerBinder for further details.
-temperature-summary> {"sensor_id":"sensor-1","window_start_ms":1793540760000,"window_end_ms":1793540820000,"count":5,"avg_temperature":23.5,"min_temperature":21.5,"max_temperature":25.5}
+Ejecución local de Flink, sin conexión con AWS ni LocalStack.
+Fecha: 2026-11-01 UTC.
+Clase: com.portfolio.streaming.LocalDemoRunner
+Origen: cinco eventos deterministas en memoria para sensor-1.
+Resultado esperado: count=5, avg=23.5, min=21.5, max=25.5.
+Salida íntegra del proceso:
+log4j:WARN No appenders could be found for logger (org.apache.flink.streaming.api.graph.StreamGraphGenerator).
+log4j:WARN Please initialize the log4j system properly.
+log4j:WARN See http://logging.apache.org/log4j/1.2/faq.html#noconfig for more info.
+WARNING: A terminally deprecated method in sun.misc.Unsafe has been called
+WARNING: sun.misc.Unsafe::objectFieldOffset has been called by org.apache.pekko.util.Unsafe (file:/tmp/flink-rpc-akka3de07a23-a2ad-4ba8-9af8-2fa23fdabd32.jar)
+WARNING: Please consider reporting this to the maintainers of class org.apache.pekko.util.Unsafe
+WARNING: sun.misc.Unsafe::objectFieldOffset will be removed in a future release
+temperature-summary> {"sensor_id":"sensor-1","window_start_ms":1793545380000,"window_end_ms":1793545440000,"count":5,"avg_temperature":23.5,"min_temperature":21.5,"max_temperature":25.5}
