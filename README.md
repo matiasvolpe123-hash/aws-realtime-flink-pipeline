@@ -107,8 +107,10 @@ tail -f flink-local-run.log
 ```
 
 **Salida real obtenida** (`evidencia-ejecucion-local.txt`):
-Se abrió un caso de soporte con AWS pidiendo el levantamiento de esa restricción. Mientras se resuelve, la evidencia de ejecución de este módulo se generó localmente (ver debajo). Cuando AWS levante el bloqueo, hay que desplegar con `terraform apply` y correr `scripts/capture-evidence.sh` (ver más abajo) para generar la evidencia real desde CloudWatch.
-temperature-summary> {“sensor_id”:”sensor-1",”window_start_ms”:1793540760000,”window_end_ms”:1793540820000,”count”:5,”avg_temperature”:23.5,”min_temperature”:21.5,”max_temperature”:25.5} 
+
+```
+temperature-summary> {"sensor_id":"sensor-1","window_start_ms":1793540760000,"window_end_ms":1793540820000,"count":5,"avg_temperature":23.5,"min_temperature":21.5,"max_temperature":25.5}
+``` 
 Esto confirma: consumo del stream de Kinesis, aplicación del `WatermarkStrategy` con tolerancia a desorden, ventana `TumblingEventTimeWindows` de 1 minuto por `sensor_id`, y agregación correcta (5 eventos con temperaturas 21.5–25.5 → promedio 23.5, mínimo 21.5, máximo 25.5).
 
 ### Evidencia real en AWS (pendiente del desbloqueo)
