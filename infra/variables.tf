@@ -15,9 +15,9 @@ variable "environment" {
 }
 
 variable "artifact_path" {
-  description = "Path to the shaded Flink JAR, relative to the terraform directory."
+  description = "Path to the shaded Flink JAR, relative to the infra directory."
   type        = string
-  default     = "../flink/target/flink-kinesis-processor.jar"
+  default     = "../app/target/flink-kinesis-processor.jar"
 }
 
 variable "shard_count" {
