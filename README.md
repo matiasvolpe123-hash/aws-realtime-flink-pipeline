@@ -96,44 +96,28 @@ arn:aws:organizations::328064416027:policy/o-pqdyvbpw97/service_control_policy/p
 
 Se abrió un caso de soporte con AWS pidiendo el levantamiento de esa restricción. Mientras se resuelve, la evidencia de ejecución de este módulo se generó localmente (ver debajo). Cuando AWS levante el bloqueo, hay que desplegar con `terraform apply` y correr `scripts/capture-evidence.sh` (ver más abajo) para generar la evidencia real desde CloudWatch.
 
-### Evidencia generada localmente (LocalStack)
+### Ejecución local sin AWS
 
-Para probar que el job de Flink funciona end-to-end (consumo de Kinesis, watermark, ventana tumbling, agregación por sensor) sin depender de la cuenta de AWS bloqueada, se emuló Kinesis con [LocalStack](https://www.localstack.cloud/) y se corrió el mismo pipeline de agregación con una clase auxiliar (`app/src/main/java/com/portfolio/streaming/LocalRunner.java`) que apunta al endpoint local en vez de al Kinesis real. La lógica de negocio (parseo, watermark, ventana, agregación) es idéntica a `SensorAggregationJob`; `LocalRunner` solo cambia la configuración de conexión del consumer.
+Se añadió `app/src/main/java/com/portfolio/streaming/LocalDemoRunner.java`, que alimenta cinco eventos deterministas en memoria al mismo `WatermarkStrategy`, ventana de un minuto y funciones de agregación del job. Esta ejecución no necesita AWS, Kinesis ni LocalStack. Comprueba la transformación y el formato del resumen local; no prueba el conector Kinesis ni los commits del sink Iceberg en Glue/S3.
 
-**Cómo reproducirlo:**
+Para reproducirla desde la raíz del repositorio (Java 11+, Maven):
 
 ```bash
-# 1. Levantar Kinesis emulado
-docker compose -f docker-compose.local.yml up -d
-
-# 2. Crear el stream
-aws --endpoint-url=http://localhost:4566 kinesis create-stream \
-  --stream-name realtime-sensors-dev-events --shard-count 1 --region us-east-2
-
-# 3. Compilar y correr el job local (Java 17 requerido; Flink 1.18 no soporta Java 25+)
 cd app
+mvn -q package -Dmaven.test.skip=true
 mvn -q dependency:build-classpath -Dmdep.outputFile=cp.txt -DincludeScope=compile
-nohup java -cp "target/classes:$(cat cp.txt)" com.portfolio.streaming.LocalRunner \
-  > ../flink-local-run.log 2>&1 &
-cd ..
-
-# 4. Mandar eventos de prueba (repetir en dos tandas separadas por >1 minuto real,
-#    para que el watermark avance y cierre la ventana del primer minuto)
-aws --endpoint-url=http://localhost:4566 kinesis put-record \
-  --stream-name realtime-sensors-dev-events --partition-key sensor-1 \
-  --data '{"sensor_id":"sensor-1","temperatura":21.5}' \
-  --cli-binary-format raw-in-base64-out --region us-east-2
-
-# 5. Ver el resultado
-tail -f flink-local-run.log
+java -Djava.net.preferIPv4Stack=true \
+  -cp "target/classes:target/flink-kinesis-processor.jar:$(cat cp.txt)" \
+  com.portfolio.streaming.LocalDemoRunner
 ```
 
-**Salida real obtenida** (`evidencia-ejecucion-local.txt`):
+La última ejecución local finalizó correctamente el 2026-11-01 con OpenJDK 25.0.4.1. Flink mostró avisos de logging y `Unsafe` no fatales; el job terminó con código 0. La salida de agregación fue:
 
+```text
+temperature-summary> {"sensor_id":"sensor-1","window_start_ms":1793545380000,"window_end_ms":1793545440000,"count":5,"avg_temperature":23.5,"min_temperature":21.5,"max_temperature":25.5}
 ```
-temperature-summary> {"sensor_id":"sensor-1","window_start_ms":1793540760000,"window_end_ms":1793540820000,"count":5,"avg_temperature":23.5,"min_temperature":21.5,"max_temperature":25.5}
-``` 
-Esto confirma: consumo del stream de Kinesis, aplicación del `WatermarkStrategy` con tolerancia a desorden, ventana `TumblingEventTimeWindows` de 1 minuto por `sensor_id`, y agregación correcta (5 eventos con temperaturas 21.5–25.5 → promedio 23.5, mínimo 21.5, máximo 25.5).
+
+Los cinco valores de entrada fueron 21.5, 22.5, 23.5, 24.5 y 25.5. El resumen esperado y obtenido es count=5, promedio=23.5, mínimo=21.5 y máximo=25.5. El log íntegro de consola está guardado en `evidencia-ejecucion-local.txt`.
 
 ### Evidencia real en AWS (pendiente del desbloqueo)
 
