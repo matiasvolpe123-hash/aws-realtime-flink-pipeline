@@ -6,3 +6,9 @@ terraform.tfvars
 flink/target/
 work/
 .DS_Store
+
+# Artefactos de la ejecución local (LocalStack) — no se versionan
+flink/cp.txt
+flink/target/
+flink-local-run.log
+evidencia-contenedor-localstack.txt
