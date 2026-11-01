@@ -1,0 +1,11 @@
+services:
+  localstack:
+    image: localstack/localstack:3.4
+    container_name: localstack-kinesis
+    ports:
+      - "4566:4566"
+    environment:
+      - SERVICES=kinesis
+      - DEBUG=0
+    volumes:
+      - "/var/run/docker.sock:/var/run/docker.sock"
