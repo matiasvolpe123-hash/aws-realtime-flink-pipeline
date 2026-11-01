@@ -5,6 +5,7 @@ import com.fasterxml.jackson.databind.JsonNode;
 import com.fasterxml.jackson.databind.ObjectMapper;
 import org.apache.flink.api.common.eventtime.WatermarkStrategy;
 import org.apache.flink.api.common.functions.AggregateFunction;
+import org.apache.flink.api.common.functions.MapFunction;
 import org.apache.flink.api.common.serialization.SimpleStringSchema;
 import org.apache.flink.api.java.utils.ParameterTool;
 import org.apache.flink.streaming.api.datastream.DataStream;
@@ -13,9 +14,24 @@ import org.apache.flink.streaming.api.functions.windowing.ProcessWindowFunction;
 import org.apache.flink.streaming.api.windowing.assigners.TumblingEventTimeWindows;
 import org.apache.flink.streaming.api.windowing.time.Time;
 import org.apache.flink.streaming.api.windowing.windows.TimeWindow;
+import org.apache.flink.table.data.GenericRowData;
+import org.apache.flink.table.data.RowData;
+import org.apache.flink.table.data.StringData;
+import org.apache.flink.table.data.TimestampData;
 import org.apache.flink.streaming.connectors.kinesis.FlinkKinesisConsumer;
 import org.apache.flink.streaming.connectors.kinesis.config.ConsumerConfigConstants;
 import org.apache.flink.util.Collector;
+import org.apache.iceberg.PartitionSpec;
+import org.apache.iceberg.Schema;
+import org.apache.iceberg.catalog.Namespace;
+import org.apache.iceberg.catalog.TableIdentifier;
+import org.apache.iceberg.aws.glue.GlueCatalog;
+import org.apache.iceberg.flink.CatalogLoader;
+import org.apache.iceberg.flink.FlinkSchemaUtil;
+import org.apache.iceberg.flink.TableLoader;
+import org.apache.iceberg.flink.sink.FlinkSink;
+import org.apache.iceberg.flink.util.FlinkCompatibilityUtil;
+import org.apache.iceberg.types.Types;
 
 import java.time.Duration;
 import java.time.Instant;
@@ -38,9 +54,14 @@ public final class SensorAggregationJob {
         int parallelism = params.getInt("PARALLELISM", 2);
         long windowMinutes = params.getLong("WINDOW_MINUTES", 1);
         long outOfOrderSeconds = params.getLong("OUT_OF_ORDER_SECONDS", 10);
+        long checkpointInterval = params.getLong("CHECKPOINT_INTERVAL_MS", 60_000L);
+        String warehouse = required(params, "LAKEHOUSE_WAREHOUSE", "LAKEHOUSE_WAREHOUSE");
+        String database = params.get("GLUE_DATABASE", "lakehouse_db");
+        String tableName = params.get("ICEBERG_TABLE", "sensor_window_summaries");
 
         StreamExecutionEnvironment env = StreamExecutionEnvironment.getExecutionEnvironment();
         env.setParallelism(parallelism);
+        env.enableCheckpointing(checkpointInterval);
 
         Properties sourceProperties = new Properties();
         sourceProperties.setProperty(ConsumerConfigConstants.AWS_REGION, region);
@@ -49,7 +70,7 @@ public final class SensorAggregationJob {
         DataStream<String> records = env.addSource(new FlinkKinesisConsumer<>(streamName,
                 new SimpleStringSchema(), sourceProperties)).name("kinesis-sensor-events");
 
-        records.map(SensorAggregationJob::parse).returns(SensorEvent.class)
+        DataStream<Summary> summaries = records.map(SensorAggregationJob::parse).returns(SensorEvent.class)
                 .filter(event -> event != null)
                 .assignTimestampsAndWatermarks(WatermarkStrategy
                         .<SensorEvent>forBoundedOutOfOrderness(Duration.ofSeconds(outOfOrderSeconds))
@@ -57,8 +78,46 @@ public final class SensorAggregationJob {
                 .keyBy(event -> event.sensorId)
                 .window(TumblingEventTimeWindows.of(Time.minutes(windowMinutes)))
                 .aggregate(new TemperatureAggregate(), new WindowMetadata())
-                .name("sensor-temperature-window-aggregation")
-                .print("temperature-summary");
+                .name("sensor-temperature-window-aggregation");
+
+        Schema icebergSchema = new Schema(
+                Types.NestedField.required(1, "sensor_id", Types.StringType.get()),
+                Types.NestedField.required(2, "window_start", Types.TimestampType.withoutZone()),
+                Types.NestedField.required(3, "window_end", Types.TimestampType.withoutZone()),
+                Types.NestedField.required(4, "event_count", Types.LongType.get()),
+                Types.NestedField.required(5, "avg_temperature", Types.DoubleType.get()),
+                Types.NestedField.required(6, "min_temperature", Types.DoubleType.get()),
+                Types.NestedField.required(7, "max_temperature", Types.DoubleType.get()));
+        PartitionSpec partitionSpec = PartitionSpec.builderFor(icebergSchema).day("window_start").build();
+        TableIdentifier tableId = TableIdentifier.of(Namespace.of(database), tableName);
+
+        // Glue database is provisioned by Terraform. Create the Iceberg table once on first job start.
+        GlueCatalog catalog = new GlueCatalog();
+        Map<String, String> catalogProperties = Map.of("warehouse", warehouse, "client.region", region);
+        catalog.initialize("glue", catalogProperties);
+        if (!catalog.tableExists(tableId)) {
+            catalog.createTable(tableId, icebergSchema, partitionSpec,
+                    Map.of("location", warehouse + "/" + database + ".db/" + tableName));
+        }
+        catalog.close();
+
+        CatalogLoader catalogLoader = CatalogLoader.custom("glue", catalogProperties,
+                new org.apache.hadoop.conf.Configuration(), "org.apache.iceberg.aws.glue.GlueCatalog");
+        TableLoader tableLoader = TableLoader.fromCatalog(catalogLoader, tableId);
+        org.apache.flink.api.common.typeinfo.TypeInformation<RowData> rowDataType =
+                FlinkCompatibilityUtil.toTypeInfo(FlinkSchemaUtil.convert(icebergSchema));
+        MapFunction<Summary, RowData> toRowData = summary -> GenericRowData.of(
+                        StringData.fromString(summary.sensorId),
+                        TimestampData.fromEpochMillis(summary.windowStartMillis),
+                        TimestampData.fromEpochMillis(summary.windowEndMillis),
+                        summary.count,
+                        summary.sum / summary.count,
+                        summary.min,
+                        summary.max);
+        DataStream<RowData> icebergRows = summaries.map(toRowData)
+                .returns(rowDataType)
+                .name("map-aggregates-to-iceberg-rowdata");
+        FlinkSink.forRowData(icebergRows).tableLoader(tableLoader).append();
 
         env.execute("sensor-temperature-aggregation");
     }
