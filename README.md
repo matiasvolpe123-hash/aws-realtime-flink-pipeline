@@ -61,6 +61,7 @@ Mandá varios eventos para el mismo sensor y ventana; luego verificá los agrega
 aws logs tail /aws/kinesis-analytics/realtime-sensors-dev-flink-aggregation \
   --since 10m --follow --region us-east-2
 ```
+
 ## Evidencia de ejecución
 
 ### Bloqueo de la cuenta de AWS
@@ -70,10 +71,8 @@ An error occurred (AccessDeniedException) when calling the CreateStream operatio
 User: arn:aws:iam::683590131550:user/terraform-curso is not authorized to perform:
 kinesis:CreateStream on resource: arn:aws:kinesis:us-east-2:683590131550:stream/...
 with an explicit deny in a service control policy:
-arn:aws:organizations::328064416027:policy/o-pqdyvbpw97/service_control_policy/p-uyxw8uhp
-
-
-Se abrió un caso de soporte con AWS pidiendo el levantamiento de esa restricción. Mientras se resuelve, la evidencia de ejecución de este módulo se generó localmente (ver debajo). Si AWS levanta el bloqueo, el mismo código se puede desplegar sin cambios contra la cuenta real con `terraform apply` y repetir la prueba de extremo a extremo.
+arn:aws:organizations::328064416027:policy/o-pqdyvbpw97/service_control_policy/p-uyxw8uhp 
+Se abrió un caso de soporte con AWS pidiendo el levantamiento de esa restricción. Mientras se resuelve, la evidencia de ejecución de este módulo se generó localmente (ver debajo). Cuando AWS levante el bloqueo, hay que desplegar con `terraform apply` y correr `scripts/capture-evidence.sh` (ver más abajo) para generar la evidencia real desde CloudWatch.
 
 ### Evidencia generada localmente (LocalStack)
 
@@ -107,17 +106,20 @@ aws --endpoint-url=http://localhost:4566 kinesis put-record \
 tail -f flink-local-run.log
 ```
 
-**Salida real obtenida** (`evidencia-ejecucion-local.txt`): 
-temperature-summary> {“sensor_id”:”sensor-1",”window_start_ms”:1793540760000,”window_end_ms”:1793540820000,”count”:5,”avg_temperature”:23.5,”min_temperature”:21.5,”max_temperature”:25.5}
-
-
+**Salida real obtenida** (`evidencia-ejecucion-local.txt`):
+Se abrió un caso de soporte con AWS pidiendo el levantamiento de esa restricción. Mientras se resuelve, la evidencia de ejecución de este módulo se generó localmente (ver debajo). Cuando AWS levante el bloqueo, hay que desplegar con `terraform apply` y correr `scripts/capture-evidence.sh` (ver más abajo) para generar la evidencia real desde CloudWatch.
+temperature-summary> {“sensor_id”:”sensor-1",”window_start_ms”:1793540760000,”window_end_ms”:1793540820000,”count”:5,”avg_temperature”:23.5,”min_temperature”:21.5,”max_temperature”:25.5} 
 Esto confirma: consumo del stream de Kinesis, aplicación del `WatermarkStrategy` con tolerancia a desorden, ventana `TumblingEventTimeWindows` de 1 minuto por `sensor_id`, y agregación correcta (5 eventos con temperaturas 21.5–25.5 → promedio 23.5, mínimo 21.5, máximo 25.5).
+
+### Evidencia real en AWS (pendiente del desbloqueo)
+
+Una vez resuelto el caso de soporte y desplegada la aplicación con `terraform apply`, correr desde la raíz del repo:
 
 ```bash
 scripts/capture-evidence.sh
 ```
 
-El archivo resultante queda en `evidence/flink-cloudwatch.txt`. Enviámelo cuando esté generado para añadirlo al repositorio como evidencia.
+El archivo resultante queda en `evidence/flink-cloudwatch.txt`, generado directamente por AWS CLI contra la cuenta real (no se reemplaza con salida simulada ni de LocalStack, ver `evidence/README.md`).
 
 ## Limpieza
 
