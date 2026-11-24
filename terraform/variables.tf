@@ -17,7 +17,7 @@ variable "environment" {
 variable "artifact_path" {
   description = "Path to the shaded Flink JAR, relative to the infra directory."
   type        = string
-  default     = "../app/target/flink-kinesis-processor.jar"
+  default     = "../flink-app/target/flink-kinesis-processor.jar"
 }
 
 variable "shard_count" {

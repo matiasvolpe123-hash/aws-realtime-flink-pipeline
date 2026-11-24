@@ -49,7 +49,7 @@ resource "aws_iam_role_policy" "flink" {
       { Effect = "Allow", Action = ["kinesis:ListStreams"], Resource = "*" },
       { Effect = "Allow", Action = ["kms:Decrypt"], Resource = aws_kms_key.stream.arn },
       { Effect = "Allow", Action = ["s3:GetObject", "s3:GetObjectVersion"], Resource = aws_s3_object.flink_code.arn },
-      { Effect = "Allow", Action = ["glue:GetDatabase", "glue:GetDatabases", "glue:CreateTable", "glue:GetTable", "glue:GetTables", "glue:UpdateTable", "glue:DeleteTable", "glue:GetTableVersion", "glue:GetTableVersions"], Resource = ["arn:aws:glue:${var.aws_region}:${data.aws_caller_identity.current.account_id}:catalog", aws_glue_catalog_database.lakehouse_db.arn, "${aws_glue_catalog_database.lakehouse_db.arn}/*"] },
+      { Effect = "Allow", Action = ["glue:GetDatabase", "glue:GetDatabases", "glue:CreateTable", "glue:GetTable", "glue:GetTables", "glue:UpdateTable", "glue:DeleteTable", "glue:GetTableVersion", "glue:GetTableVersions"], Resource = ["arn:aws:glue:${var.aws_region}:${data.aws_caller_identity.current.account_id}:catalog", aws_glue_catalog_database.lakehouse_db.arn, "arn:aws:glue:${var.aws_region}:${data.aws_caller_identity.current.account_id}:table/${aws_glue_catalog_database.lakehouse_db.name}/*"] },
       { Effect = "Allow", Action = ["s3:ListBucket", "s3:GetBucketLocation"], Resource = aws_s3_bucket.lake.arn },
       { Effect = "Allow", Action = ["s3:GetObject", "s3:PutObject", "s3:DeleteObject", "s3:AbortMultipartUpload", "s3:ListMultipartUploadParts"], Resource = "${aws_s3_bucket.lake.arn}/warehouse/*" },
       { Effect = "Allow", Action = ["logs:CreateLogStream", "logs:DescribeLogStreams", "logs:PutLogEvents"], Resource = "${aws_cloudwatch_log_group.flink.arn}:*" }

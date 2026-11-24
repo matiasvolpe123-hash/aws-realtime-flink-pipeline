@@ -3,12 +3,14 @@
 *.tfstate.*
 *.tfplan
 terraform.tfvars
-app/target/
+flink-app/target/
 work/
 .DS_Store
 
 # Artefactos de la ejecución local (LocalStack) — no se versionan
-app/cp.txt
-app/target/
+flink-app/cp.txt
+flink-app/target/
 flink-local-run.log
 evidencia-contenedor-localstack.txt
+sql/streaming_analytics.rendered.sql
+backend.hcl

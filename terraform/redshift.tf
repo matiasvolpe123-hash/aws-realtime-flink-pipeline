@@ -127,7 +127,7 @@ data "aws_iam_policy_document" "redshift_analytics" {
     resources = [
       "arn:aws:glue:${var.aws_region}:${data.aws_caller_identity.current.account_id}:catalog",
       aws_glue_catalog_database.lakehouse_db.arn,
-      "${aws_glue_catalog_database.lakehouse_db.arn}/*",
+      "arn:aws:glue:${var.aws_region}:${data.aws_caller_identity.current.account_id}:table/${aws_glue_catalog_database.lakehouse_db.name}/*",
     ]
   }
 

@@ -35,12 +35,16 @@ import org.apache.iceberg.types.Types;
 
 import java.time.Duration;
 import java.time.Instant;
+import java.time.OffsetDateTime;
 import java.util.HashMap;
 import java.util.Map;
 import java.util.Properties;
+import java.util.concurrent.atomic.AtomicLong;
 
 public final class SensorAggregationJob {
     private static final ObjectMapper JSON = new ObjectMapper();
+    private static final AtomicLong ACCEPTED_EVENTS = new AtomicLong();
+    private static final AtomicLong REJECTED_EVENTS = new AtomicLong();
 
     public static void main(String[] args) throws Exception {
         Map<String, Properties> groups = KinesisAnalyticsRuntime.getApplicationProperties();
@@ -74,7 +78,8 @@ public final class SensorAggregationJob {
                 .filter(event -> event != null)
                 .assignTimestampsAndWatermarks(WatermarkStrategy
                         .<SensorEvent>forBoundedOutOfOrderness(Duration.ofSeconds(outOfOrderSeconds))
-                        .withTimestampAssigner((event, previous) -> event.eventTimeMillis))
+                        .withTimestampAssigner((event, previous) -> event.eventTimeMillis)
+                        .withIdleness(Duration.ofSeconds(30)))
                 .keyBy(event -> event.sensorId)
                 .window(TumblingEventTimeWindows.of(Time.minutes(windowMinutes)))
                 .aggregate(new TemperatureAggregate(), new WindowMetadata())
@@ -133,13 +138,39 @@ public final class SensorAggregationJob {
             JsonNode json = JSON.readTree(text);
             String sensorId = json.path("sensor_id").asText("");
             JsonNode temperature = json.path("temperatura");
-            if (sensorId.isBlank() || !temperature.isNumber()) return null;
+            if (sensorId.isBlank() || !temperature.isNumber()) {
+                reject("missing sensor_id or numeric temperatura", text);
+                return null;
+            }
             JsonNode time = json.has("event_time") ? json.path("event_time") : json.path("timestamp");
-            long millis = time.isNumber() ? time.asLong()
-                    : time.isTextual() ? Instant.parse(time.asText()).toEpochMilli() : System.currentTimeMillis();
+            long millis;
+            if (time.isNumber()) {
+                millis = time.asLong();
+            } else if (time.isTextual()) {
+                try {
+                    millis = Instant.parse(time.asText()).toEpochMilli();
+                } catch (RuntimeException notInstant) {
+                    millis = OffsetDateTime.parse(time.asText()).toInstant().toEpochMilli();
+                }
+            } else {
+                millis = System.currentTimeMillis();
+            }
+            long accepted = ACCEPTED_EVENTS.incrementAndGet();
+            if (accepted <= 3) {
+                System.out.printf("parsed-sensor-event> id=%s event_time_ms=%d temperature=%.2f%n",
+                        sensorId, millis, temperature.asDouble());
+            }
             return new SensorEvent(sensorId, temperature.asDouble(), millis);
-        } catch (Exception ignored) {
+        } catch (Exception error) {
+            reject(error.getClass().getSimpleName() + ": " + error.getMessage(), text);
             return null;
+        }
+    }
+
+    private static void reject(String reason, String text) {
+        long count = REJECTED_EVENTS.incrementAndGet();
+        if (count <= 10) {
+            System.err.printf("rejected-sensor-event> reason=%s record=%s%n", reason, text);
         }
     }
 
@@ -190,6 +221,7 @@ public final class SensorAggregationJob {
             result.sensorId = key;
             result.windowStartMillis = context.window().getStart();
             result.windowEndMillis = context.window().getEnd();
+            System.out.println("temperature-summary> " + result);
             out.collect(result);
         }
     }
