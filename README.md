@@ -46,9 +46,9 @@ Después del despliegue, guarda capturas reales de Glue y Athena en `evidence/ic
 Requisitos: JDK 11 o posterior, Maven 3.8+, Terraform 1.5+ y AWS CLI con permisos para crear Kinesis, KMS, S3, Glue, IAM, CloudWatch, Firehose y Managed Flink.
 
 ```bash
-cd app
+cd flink-app
 mvn clean package
-cd ../infra
+cd ../terraform
 cp terraform.tfvars.example terraform.tfvars
 terraform init
 terraform plan
@@ -82,28 +82,24 @@ aws logs tail /aws/kinesis-analytics/realtime-sensors-dev-flink-aggregation \
 
 ## Evidencia de ejecución
 
-### Bloqueo de la cuenta de AWS
+### Ejecución real en AWS
 
-Esta cuenta de AWS (683590131550) fue creada por el autor del proyecto, conectada con GitHub, sin ninguna organización asignada por el curso. AWS aplica automáticamente guardrails (Service Control Policies) a cuentas nuevas como medida antifraude hasta que la cuenta pasa cierta verificación. En este caso, la SCP `p-uyxw8uhp` deniega explícitamente `kinesis:CreateStream` (y otras acciones de Kinesis) en todas las regiones probadas (us-east-2, us-west-2, eu-west-1), lo que impide desplegar el stream real que necesita este módulo:
+El stack completo (Kinesis, Managed Flink, Iceberg/Glue, Redshift Serverless) se desplegó con `terraform apply` y se validó con eventos sintéticos. Las capturas se tomaron de la consola mientras el stack estaba activo (18 a 20/11/2026). Después apagué los recursos para no generar costo.
 
-```
-An error occurred (AccessDeniedException) when calling the CreateStream operation:
-User: arn:aws:iam::683590131550:user/terraform-curso is not authorized to perform:
-kinesis:CreateStream on resource: arn:aws:kinesis:us-east-2:683590131550:stream/...
-with an explicit deny in a service control policy:
-arn:aws:organizations::328064416027:policy/o-pqdyvbpw97/service_control_policy/p-uyxw8uhp
-```
+- `evidence/flink-dashboard.png`: Apache Flink Dashboard, job `sensor-temperature-aggregation` en estado RUNNING, 3/3 tasks, 0 fallos.
+- `evidence/redshift-query.png`: consulta a `v_sensor_readings` en Redshift Query Editor v2, con datos frescos.
+- `evidence/redshift-arrival-timestamp.png`: `event_timestamp` (hora del sensor) junto a `approximate_arrival_timestamp` (hora de llegada a Kinesis).
 
-Se abrió un caso de soporte con AWS pidiendo el levantamiento de esa restricción. Mientras se resuelve, la evidencia de ejecución de este módulo se generó localmente (ver debajo). Cuando AWS levante el bloqueo, hay que desplegar con `terraform apply` y correr `scripts/capture-evidence.sh` (ver más abajo) para generar la evidencia real desde CloudWatch.
+El análisis completo está en el documento DAAT (`Matias_Volpe_Capstone_RealTime.pdf`).
 
 ### Ejecución local sin AWS
 
-Se añadió `app/src/main/java/com/portfolio/streaming/LocalDemoRunner.java`, que alimenta cinco eventos deterministas en memoria al mismo `WatermarkStrategy`, ventana de un minuto y funciones de agregación del job. Esta ejecución no necesita AWS, Kinesis ni LocalStack. Comprueba la transformación y el formato del resumen local; no prueba el conector Kinesis ni los commits del sink Iceberg en Glue/S3.
+Se añadió `flink-app/src/main/java/com/portfolio/streaming/LocalDemoRunner.java`, que alimenta cinco eventos deterministas en memoria al mismo `WatermarkStrategy`, ventana de un minuto y funciones de agregación del job. Esta ejecución no necesita AWS, Kinesis ni LocalStack. Comprueba la transformación y el formato del resumen local; no prueba el conector Kinesis ni los commits del sink Iceberg en Glue/S3.
 
 Para reproducirla desde la raíz del repositorio (Java 11+, Maven):
 
 ```bash
-cd app
+cd flink-app
 mvn -q package -Dmaven.test.skip=true
 mvn -q dependency:build-classpath -Dmdep.outputFile=cp.txt -DincludeScope=compile
 java -Djava.net.preferIPv4Stack=true \
@@ -119,19 +115,10 @@ temperature-summary> {"sensor_id":"sensor-1","window_start_ms":1793545380000,"wi
 
 Los cinco valores de entrada fueron 21.5, 22.5, 23.5, 24.5 y 25.5. El resumen esperado y obtenido es count=5, promedio=23.5, mínimo=21.5 y máximo=25.5. El log íntegro de consola está guardado en `evidencia-ejecucion-local.txt`.
 
-### Evidencia real en AWS (pendiente del desbloqueo)
-
-Una vez resuelto el caso de soporte y desplegada la aplicación con `terraform apply`, correr desde la raíz del repo:
-
-```bash
-scripts/capture-evidence.sh
-```
-
-El archivo resultante queda en `evidence/flink-cloudwatch.txt`, generado directamente por AWS CLI contra la cuenta real (no se reemplaza con salida simulada ni de LocalStack, ver `evidence/README.md`).
 
 ## Limpieza
 
 ```bash
-cd infra
+cd terraform
 terraform destroy
 ```
