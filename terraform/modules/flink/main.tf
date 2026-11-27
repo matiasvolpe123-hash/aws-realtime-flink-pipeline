@@ -82,7 +82,7 @@ resource "aws_kinesisanalyticsv2_application" "flink" {
     }
     run_configuration {
       application_restore_configuration {
-        application_restore_type = "SKIP_RESTORE" # primer arranque: no hay snapshot previo
+        application_restore_type = "SKIP_RESTORE_FROM_SNAPSHOT" # primer arranque: no hay snapshot previo
       }
     }
     environment_properties {
