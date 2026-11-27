@@ -1,27 +1,8 @@
 # ------------------------------------------------------------------------------
-# Capa de analítica de baja latencia: Redshift Serverless lee directamente del
-# stream de Kinesis (Streaming Ingestion, Módulo 2) y consulta las tablas
-# Iceberg del lakehouse (Módulo 4) vía Redshift Spectrum sobre el mismo
-# Glue Data Catalog. No se usa un clúster provisionado clásico: Serverless
-# evita pagar por capacidad ociosa mientras se desarrolla el checkpoint.
+# Analítica de baja latencia: Redshift Serverless lee el stream de Kinesis
+# (Streaming Ingestion) y consulta las tablas Iceberg vía Redshift Spectrum
+# sobre el mismo Glue Data Catalog. Serverless evita pagar capacidad ociosa.
 # ------------------------------------------------------------------------------
-
-variable "redshift_base_capacity_rpu" {
-  description = "Capacidad base del workgroup, en Redshift Processing Units (mínimo 8)."
-  type        = number
-  default     = 8
-}
-
-variable "redshift_admin_username" {
-  description = "Usuario administrador del namespace de Redshift."
-  type        = string
-  default     = "admin_analytics"
-}
-
-variable "redshift_allowed_cidr" {
-  description = "CIDR permitido para conectarse al puerto 5439 del workgroup (tu IP pública /32, por ejemplo). No se deja abierto a 0.0.0.0/0."
-  type        = string
-}
 
 # Subredes y VPC: se reutiliza la VPC por defecto de la cuenta/región para no
 # duplicar una red completa solo para este checkpoint. En un entorno de
@@ -38,7 +19,7 @@ data "aws_subnets" "default" {
 }
 
 resource "aws_security_group" "redshift" {
-  name        = "${local.prefix}-redshift-sg"
+  name        = "${var.prefix}-redshift-sg"
   description = "Acceso al workgroup de Redshift Serverless (puerto 5439)."
   vpc_id      = data.aws_vpc.default.id
 
@@ -76,7 +57,7 @@ resource "random_password" "redshift_admin" {
 # escribe, Redshift solo lee.
 # ------------------------------------------------------------------------------
 resource "aws_iam_role" "redshift" {
-  name = "${local.prefix}-redshift-analytics-role"
+  name = "${var.prefix}-redshift-analytics-role"
   assume_role_policy = jsonencode({
     Version = "2012-10-17"
     Statement = [{
@@ -97,7 +78,7 @@ data "aws_iam_policy_document" "redshift_analytics" {
       "kinesis:GetRecords",
       "kinesis:ListShards",
     ]
-    resources = [aws_kinesis_stream.events.arn]
+    resources = [var.stream_arn]
   }
 
   statement {
@@ -109,7 +90,7 @@ data "aws_iam_policy_document" "redshift_analytics" {
   statement {
     sid       = "KinesisStreamKms"
     actions   = ["kms:Decrypt"]
-    resources = [aws_kms_key.stream.arn]
+    resources = [var.kms_key_arn]
   }
 
   statement {
@@ -125,33 +106,33 @@ data "aws_iam_policy_document" "redshift_analytics" {
       "glue:GetTableVersions",
     ]
     resources = [
-      "arn:aws:glue:${var.aws_region}:${data.aws_caller_identity.current.account_id}:catalog",
-      aws_glue_catalog_database.lakehouse_db.arn,
-      "arn:aws:glue:${var.aws_region}:${data.aws_caller_identity.current.account_id}:table/${aws_glue_catalog_database.lakehouse_db.name}/*",
+      "arn:aws:glue:${var.aws_region}:${var.account_id}:catalog",
+      var.glue_database_arn,
+      "arn:aws:glue:${var.aws_region}:${var.account_id}:table/${var.glue_database_name}/*",
     ]
   }
 
   statement {
     sid       = "LakehouseDataRead"
     actions   = ["s3:GetObject"]
-    resources = ["${aws_s3_bucket.lake.arn}/warehouse/*"]
+    resources = ["${var.bucket_arn}/warehouse/*"]
   }
 
   statement {
     sid       = "LakehouseBucketList"
     actions   = ["s3:ListBucket", "s3:GetBucketLocation"]
-    resources = [aws_s3_bucket.lake.arn]
+    resources = [var.bucket_arn]
   }
 }
 
 resource "aws_iam_role_policy" "redshift_analytics" {
-  name   = "${local.prefix}-redshift-analytics-policy"
+  name   = "${var.prefix}-redshift-analytics-policy"
   role   = aws_iam_role.redshift.id
   policy = data.aws_iam_policy_document.redshift_analytics.json
 }
 
 resource "aws_redshiftserverless_namespace" "analytics" {
-  namespace_name       = "${local.prefix}-analytics"
+  namespace_name       = "${var.prefix}-analytics"
   db_name              = "analytics"
   admin_username       = var.redshift_admin_username
   admin_user_password  = random_password.redshift_admin.result
@@ -162,26 +143,9 @@ resource "aws_redshiftserverless_namespace" "analytics" {
 
 resource "aws_redshiftserverless_workgroup" "analytics" {
   namespace_name      = aws_redshiftserverless_namespace.analytics.namespace_name
-  workgroup_name      = "${local.prefix}-analytics-wg"
+  workgroup_name      = "${var.prefix}-analytics-wg"
   base_capacity       = var.redshift_base_capacity_rpu
   subnet_ids          = data.aws_subnets.default.ids
   security_group_ids  = [aws_security_group.redshift.id]
   publicly_accessible = true
-}
-
-output "redshift_workgroup_endpoint" {
-  value = aws_redshiftserverless_workgroup.analytics.endpoint
-}
-
-output "redshift_admin_username" {
-  value = var.redshift_admin_username
-}
-
-output "redshift_admin_password" {
-  value     = random_password.redshift_admin.result
-  sensitive = true
-}
-
-output "redshift_iam_role_arn" {
-  value = aws_iam_role.redshift.arn
 }

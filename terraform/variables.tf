@@ -15,7 +15,7 @@ variable "environment" {
 }
 
 variable "artifact_path" {
-  description = "Path to the shaded Flink JAR, relative to the infra directory."
+  description = "Path to the shaded Flink JAR, relative to the terraform directory."
   type        = string
   default     = "../flink-app/target/flink-kinesis-processor.jar"
 }
@@ -48,4 +48,27 @@ variable "out_of_order_seconds" {
 variable "checkpoint_interval_ms" {
   type    = number
   default = 60000
+}
+
+variable "retention_hours" {
+  description = "Retención del stream de Kinesis en horas (24 = mínimo, sin cargo extra)."
+  type        = number
+  default     = 24
+}
+
+variable "redshift_base_capacity_rpu" {
+  description = "Capacidad base del workgroup, en Redshift Processing Units (mínimo 8)."
+  type        = number
+  default     = 8
+}
+
+variable "redshift_admin_username" {
+  description = "Usuario administrador del namespace de Redshift."
+  type        = string
+  default     = "admin_analytics"
+}
+
+variable "redshift_allowed_cidr" {
+  description = "CIDR permitido para conectarse al puerto 5439 del workgroup (tu IP pública /32). No se deja abierto a 0.0.0.0/0."
+  type        = string
 }

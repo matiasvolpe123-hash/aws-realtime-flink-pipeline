@@ -1,10 +1,19 @@
-output "kinesis_stream_name" { value = aws_kinesis_stream.events.name }
-output "firehose_name" { value = aws_kinesis_firehose_delivery_stream.raw.name }
-output "flink_application_name" { value = aws_kinesisanalyticsv2_application.flink.name }
-output "flink_log_group_name" { value = aws_cloudwatch_log_group.flink.name }
-output "datalake_bucket_name" { value = aws_s3_bucket.lake.id }
+output "kinesis_stream_name" { value = module.ingestion.stream_name }
+output "firehose_name" { value = module.ingestion.firehose_name }
+output "flink_application_name" { value = module.flink.application_name }
+output "flink_log_group_name" { value = module.flink.log_group_name }
+output "datalake_bucket_name" { value = module.storage.bucket_id }
 
 output "redshift_analytics_role_arn" {
   description = "ARN del rol IAM usado por Redshift para Streaming Ingestion y Spectrum"
-  value       = aws_iam_role.redshift.arn
+  value       = module.redshift.iam_role_arn
+}
+
+output "redshift_workgroup_endpoint" { value = module.redshift.workgroup_endpoint }
+output "redshift_admin_username" { value = module.redshift.admin_username }
+output "redshift_iam_role_arn" { value = module.redshift.iam_role_arn }
+
+output "redshift_admin_password" {
+  value     = module.redshift.admin_password
+  sensitive = true
 }
