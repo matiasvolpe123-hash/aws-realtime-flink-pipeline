@@ -43,26 +43,28 @@ Después del despliegue, guarda capturas reales de Glue y Athena en `evidence/ic
 
 ## Compilar y desplegar
 
-Requisitos: JDK 11 o posterior, Maven 3.8+, Terraform 1.5+ y AWS CLI con permisos para crear Kinesis, KMS, S3, Glue, IAM, CloudWatch, Firehose y Managed Flink.
+Requisitos: JDK 11 o posterior, Maven 3.8+, Terraform 1.5+ y AWS CLI con permisos para crear Kinesis, KMS, S3, Glue, IAM, CloudWatch, Firehose, Managed Flink y Redshift Serverless.
+
+El código de `terraform/` está dividido en cuatro módulos (`modules/storage`, `ingestion`, `flink`, `redshift`) y guarda su estado en un backend remoto S3 con locking en DynamoDB.
 
 ```bash
+# 1. Compilar el JAR de Flink
 cd flink-app
 mvn clean package
+
+# 2. Crear una sola vez el bucket y la tabla del backend remoto
 cd ../terraform
-cp terraform.tfvars.example terraform.tfvars
-terraform init
+bash bootstrap_backend.sh          # imprime: Bucket: tfstate-<account-id>
+echo 'bucket = "tfstate-<account-id>"' > backend.hcl
+
+# 3. Variables y despliegue
+cp terraform.tfvars.example terraform.tfvars   # completar redshift_allowed_cidr con tu IP /32
+terraform init -backend-config=backend.hcl
 terraform plan
 terraform apply
 ```
 
-Para iniciar la aplicación después del `apply`:
-
-```bash
-aws kinesisanalyticsv2 start-application \
-  --application-name realtime-sensors-dev-flink-aggregation \
-  --run-configuration 'ApplicationRestoreConfiguration={ApplicationRestoreType=SKIP_RESTORE}' \
-  --region us-east-2
-```
+La aplicación de Flink arranca sola al terminar el `apply` (`start_application = true`); no hace falta ningún comando manual. Las vistas de Redshift no las crea Terraform: se ejecutan una vez desde `sql/` (ver más abajo).
 
 Enviar datos de prueba (el ejemplo usa hora de ingestión):
 
@@ -84,13 +86,25 @@ aws logs tail /aws/kinesis-analytics/realtime-sensors-dev-flink-aggregation \
 
 ### Ejecución real en AWS
 
-El stack completo (Kinesis, Managed Flink, Iceberg/Glue, Redshift Serverless) se desplegó con `terraform apply` y se validó con eventos sintéticos. Las capturas se tomaron de la consola mientras el stack estaba activo (18 a 20/11/2026). Después apagué los recursos para no generar costo.
+El stack completo (Kinesis, Managed Flink, Iceberg/Glue, Redshift Serverless) se destruyó y se volvió a crear desde cero con un solo `terraform apply` (25 recursos en unos 6 minutos, aplicación de Flink arrancada por Terraform). Después se enviaron 150 eventos sintéticos con `scripts/send_test_events.py` y se tomaron las capturas el 27/11/2026. Una vez tomada la evidencia, el stack se destruye para no generar costo.
 
-- `evidence/flink-dashboard.png`: Apache Flink Dashboard, job `sensor-temperature-aggregation` en estado RUNNING, 3/3 tasks, 0 fallos.
-- `evidence/redshift-query.png`: consulta a `v_sensor_readings` en Redshift Query Editor v2, con datos frescos.
-- `evidence/redshift-arrival-timestamp.png`: `event_timestamp` (hora del sensor) junto a `approximate_arrival_timestamp` (hora de llegada a Kinesis).
+- `evidence/flink-dashboard.png`: Apache Flink Dashboard, job `sensor-temperature-aggregation` en RUNNING, 3/3 tasks, 0 fallos.
+- `evidence/flink-checkpoints.png`: 25 checkpoints completados, 0 fallidos.
+- `evidence/redshift-freshness.png`: `event_timestamp` (hora del sensor) junto a `approximate_arrival_timestamp` (hora de llegada a Kinesis).
+- `evidence/redshift-iceberg.png`: tabla Iceberg `sensor_window_summaries` leída por Redshift Spectrum.
+- `evidence/redshift-join.png`: JOIN entre la vista en vivo de Redshift y la tabla Iceberg.
 
 El análisis completo está en el documento DAAT (`Matias_Volpe_Capstone_RealTime.pdf`).
+
+#### Vistas de Redshift
+
+Después del `apply`, desde la raíz del repositorio:
+
+```bash
+bash sql/render_sql.sh        # genera sql/streaming_analytics.rendered.sql con el ARN del rol
+```
+
+Conectarse a Redshift (base `analytics`, usuario `admin_analytics`, contraseña con `terraform output -raw redshift_admin_password`) y ejecutar el archivo generado.
 
 ### Ejecución local sin AWS
 
